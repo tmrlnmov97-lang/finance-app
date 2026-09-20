@@ -55,7 +55,7 @@
   </form>
 </div>
 
-<button class="signout" id="signout" hidden>выйти</button>
+<!-- Выход из аккаунта живёт в самом приложении, в разделе «Настройки». -->
 
 <script>
 /* Вход и сессия. Приложение (ниже по странице) ждёт window.financeAuth.ready,
@@ -71,7 +71,6 @@
   var errEl = document.getElementById('gateErr');
   var btn = document.getElementById('gateBtn');
   var switchBtn = document.getElementById('gateSwitch');
-  var signout = document.getElementById('signout');
   var mode = 'login';
   var resolveUser;
 
@@ -103,7 +102,6 @@
 
   function enter(user) {
     gate.hidden = true;
-    signout.hidden = false;
     document.documentElement.style.overflow = '';
     resolveUser(user);
   }
@@ -116,10 +114,6 @@
 
   var client = window.supabase.createClient(cfg.url, cfg.anonKey);
   window.financeAuth.client = client;
-
-  signout.addEventListener('click', function () {
-    client.auth.signOut().then(function () { location.reload(); });
-  });
 
   switchBtn.addEventListener('click', function () { setMode(mode === 'login' ? 'signup' : 'login'); });
 
@@ -2237,6 +2231,7 @@
                 <div style="font-size: 12.5px; color: var(--mut);">{{ userName }}</div>
               </div>
             </div>
+            <button onClick="{{ signOut }}" style="margin-top: 18px; width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid rgba(128, 128, 128, 0.32); background: rgba(128, 128, 128, 0.07); color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;">Выйти из аккаунта</button>
           </section>
         </div>
       </div>
@@ -2449,6 +2444,20 @@ class Component extends DCLogic {
       this.saving = false;
       if (this.saveAgain) { this.saveAgain = false; this.queueSave(); }
     }
+  }
+
+  /* Выход из аккаунта — кнопка в разделе «Настройки». Сначала дописываем
+     несохранённое, потом гасим сессию и перезагружаем страницу. */
+  async signOutApp() {
+    try {
+      clearTimeout(this.saveTimer);
+      if (this.pendingSave) await this.flushSave();
+      const auth = window.financeAuth;
+      if (auth && auth.client) await auth.client.auth.signOut();
+    } catch (e) {
+      console.error('[финансы] выход:', e);
+    }
+    location.reload();
   }
 
   /* Совет ИИ работает только внутри claude.ai: на своём сайте для него нужен
@@ -2857,6 +2866,7 @@ class Component extends DCLogic {
 
     return {
       isApp: true,
+      signOut: () => this.signOutApp(),
       authTitle: st.authMode === 'login' ? 'С возвращением' : 'Создать аккаунт',
       authSub: st.authMode === 'login' ? 'Введите ник и пароль, чтобы открыть свои деньги.' : 'Придумайте ник и пароль — больше ничего не нужно.',
       authLogin: st.authLogin, authPass: st.authPass,
