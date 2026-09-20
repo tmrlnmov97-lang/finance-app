@@ -2386,8 +2386,8 @@ class Component extends DCLogic {
   static SAVE_KEYS = ['blocks', 'spends', 'savings', 'credits', 'goals',
     'theme', 'accent', 'name', 'base', 'rates', 'goldPrice'];
 
-  componentDidMount() { this.initCloud(); }
-
+  /* Вызывается из componentDidMount приложения (свой хук здесь заводить нельзя:
+     в классе ниже уже есть componentDidMount, и он затирает одноимённый метод). */
   async initCloud() {
     try {
       const auth = window.financeAuth;
@@ -3095,6 +3095,7 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
+    this.initCloud();
     if (this.props.defaultTheme && this.props.defaultTheme !== this.state.theme) this.setState({ theme: this.props.defaultTheme });
   }
 
