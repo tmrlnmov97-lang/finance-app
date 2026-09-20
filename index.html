@@ -2368,7 +2368,8 @@ class Component extends DCLogic {
     }
   ],
   "credits": [],
-  "goals": []
+  "goals": [],
+  "months": {}
 };
 
   palette = ['#8B7AB8', '#B87498', '#6C7FB8', '#5E8E7E', '#A6883F', '#9B7FC4'];
@@ -2378,7 +2379,7 @@ class Component extends DCLogic {
      Данные лежат в таблице finance_state проекта Supabase, одна строка на
      пользователя. Политики RLS пускают к строке только её владельца, так что
      чужой глаз данных не увидит, даже зная адрес сайта. */
-  static SAVE_KEYS = ['blocks', 'spends', 'savings', 'credits', 'goals',
+  static SAVE_KEYS = ['months', 'year', 'month', 'spends', 'savings', 'credits', 'goals',
     'theme', 'accent', 'name', 'base', 'rates', 'goldPrice'];
 
   /* Вызывается из componentDidMount приложения (свой хук здесь заводить нельзя:
@@ -2407,14 +2408,8 @@ class Component extends DCLogic {
     if (res.error) { console.error('[финансы] чтение:', res.error); return; }
     const saved = res.data && res.data.data;
     if (!saved) return;
-    const patch = {};
-    Component.SAVE_KEYS.forEach(k => { if (saved[k] !== undefined) patch[k] = saved[k]; });
+    const patch = this.applySaved(saved);
     if (Object.keys(patch).length) this.setState(patch);
-  }
-
-  setState(update, cb) {
-    super.setState(update, cb);
-    this.queueSave();
   }
 
   queueSave() {
@@ -2431,10 +2426,8 @@ class Component extends DCLogic {
     this.saving = true;
     this.pendingSave = false;
     try {
-      const body = {};
-      Component.SAVE_KEYS.forEach(k => { if (this.state[k] !== undefined) body[k] = this.state[k]; });
       const res = await this.client.from('finance_state').upsert({
-        user_id: this.userId, data: body, updated_at: new Date().toISOString()
+        user_id: this.userId, data: this.saveBody(), updated_at: new Date().toISOString()
       });
       if (res.error) throw res.error;
     } catch (e) {
@@ -2465,6 +2458,70 @@ class Component extends DCLogic {
   async aiComplete() {
     if (window.claude && window.claude.complete) return req => window.claude.complete(req);
     throw new Error('совет ИИ доступен только в версии на claude.ai');
+  }
+
+  /* ——— данные по месяцам ———
+     state.blocks — блоки ТЕКУЩЕГО месяца (доходы, расходы, «Есть сейчас»),
+     state.months — все месяцы: { "2026-9": [блоки], "2026-10": [...] }.
+     Переключение месяца прячет текущие блоки в карту и достаёт блоки нового
+     месяца; если их ещё нет — берётся тот же набор блоков с пустыми строками,
+     чтобы названия и валюты не заводить заново.
+     Накопления, кредиты и цели общие: они накопительные, не помесячные. */
+
+  monthKey(year, month) { return String(year) + '-' + String(month + 1); }
+
+  blankBlocks(blocks) {
+    return (blocks || []).map(b => Object.assign({}, b, { items: [] }));
+  }
+
+  setState(update, cb) {
+    const prev = this.state;
+    // Считаем правку сами и передаём объектом: иначе функцию-правку вызовут дважды.
+    const patch = Object.assign({}, (typeof update === 'function' ? update(prev) : update) || {});
+
+    const switching = (patch.year !== undefined && patch.year !== prev.year)
+                   || (patch.month !== undefined && patch.month !== prev.month);
+    // patch.blocks задан — это загрузка сохранённого, а не переключение месяца.
+    if (switching && patch.blocks === undefined) {
+      const year = patch.year !== undefined ? patch.year : prev.year;
+      const month = patch.month !== undefined ? patch.month : prev.month;
+      const months = Object.assign({}, prev.months || {});
+      months[this.monthKey(prev.year, prev.month)] = prev.blocks || [];
+      const saved = months[this.monthKey(year, month)];
+      patch.months = months;
+      patch.blocks = saved ? saved : this.blankBlocks(prev.blocks);
+    }
+
+    super.setState(patch, cb);
+    this.queueSave();
+  }
+
+  /* Что уходит в хранилище: блоки текущего месяца кладём в карту месяцев. */
+  saveBody() {
+    const s = this.state;
+    const body = {};
+    Component.SAVE_KEYS.forEach(k => { if (s[k] !== undefined) body[k] = s[k]; });
+    const months = Object.assign({}, s.months || {});
+    months[this.monthKey(s.year, s.month)] = s.blocks || [];
+    body.months = months;
+    return body;
+  }
+
+  /* Что приходит из хранилища. Старые записи (без карты месяцев) кладём
+     целиком в тот месяц, который в них указан. */
+  applySaved(saved) {
+    const patch = {};
+    Component.SAVE_KEYS.forEach(k => { if (saved[k] !== undefined) patch[k] = saved[k]; });
+    const year = patch.year !== undefined ? patch.year : this.state.year;
+    const month = patch.month !== undefined ? patch.month : this.state.month;
+    const months = saved.months && typeof saved.months === 'object'
+      ? Object.assign({}, saved.months)
+      : {};
+    if (!saved.months && saved.blocks) months[this.monthKey(year, month)] = saved.blocks;
+    patch.months = months;
+    const cur = months[this.monthKey(year, month)];
+    patch.blocks = cur ? cur : this.blankBlocks(saved.blocks || this.state.blocks);
+    return patch;
   }
 
   num(n) {
