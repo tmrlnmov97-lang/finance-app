@@ -2299,8 +2299,12 @@ CATS.forEach(c => { CAT_COLOR[c[0]] = c[1]; });
 const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
 const MSHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const MGEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+/* Номер записи должен быть уникален НАВСЕГДА, а не в пределах одной загрузки
+   страницы. Прежний счётчик начинался с нуля при каждом открытии сайта, поэтому
+   записи из разных сеансов получали одинаковые номера, и удаление одной строки
+   стирало все одноимённые — в том числе из других месяцев. */
 let UID = 0;
-const uid = () => 'x' + (++UID);
+const uid = () => 'x' + Date.now().toString(36) + (++UID).toString(36) + Math.random().toString(36).slice(2, 7);
 const plural = (n, a, b, c) => { const m = n % 100; if (m > 10 && m < 20) return c; const k = n % 10; return k === 1 ? a : (k > 1 && k < 5 ? b : c); };
 
 class Component extends DCLogic {
@@ -2418,6 +2422,8 @@ class Component extends DCLogic {
       }
       // Запись разрешаем только после загрузки: иначе пустой старт затрёт сохранённое.
       this.saveReady = true;
+      // Если чинили номера записей — сразу закрепляем починку в хранилище.
+      if (this.idsRepaired) { this.idsRepaired = false; this.queueSave(); }
       window.addEventListener('pagehide', () => { if (this.pendingSave) this.flushSave(); });
     } catch (e) {
       console.error('[финансы] не удалось подключить хранилище:', e);
@@ -2530,7 +2536,41 @@ class Component extends DCLogic {
 
   /* Что приходит из хранилища. Старые записи (без карты месяцев) кладём
      целиком в тот месяц, который в них указан. */
+  /* Лечит данные, записанные прежней версией: там номера записей начинались
+     заново при каждом открытии сайта, поэтому в одном списке попадались
+     одинаковые. Удаление одной строки уносило все остальные с тем же номером.
+     Здесь повторы получают новые номера. Сами суммы и даты не трогаем. */
+  repairIds(saved) {
+    let fixed = 0;
+    const uniq = list => {
+      if (!Array.isArray(list)) return;
+      const seen = Object.create(null);
+      list.forEach(it => {
+        if (!it || typeof it !== 'object') return;
+        if (it.id === undefined || seen[it.id]) { it.id = uid(); fixed++; }
+        seen[it.id] = true;
+      });
+    };
+    uniq(saved.spends);
+    uniq(saved.goals);
+    uniq(saved.savings);
+    (saved.savings || []).forEach(b => uniq(b && b.items));
+    uniq(saved.credits);
+    (saved.credits || []).forEach(c => uniq(c && c.history));
+    const monthly = saved.months && typeof saved.months === 'object' ? saved.months : {};
+    [saved.blocks].concat(Object.keys(monthly).map(k => monthly[k])).forEach(set => {
+      uniq(set);
+      (set || []).forEach(b => uniq(b && b.items));
+    });
+    return fixed;
+  }
+
   applySaved(saved) {
+    const fixed = this.repairIds(saved);
+    if (fixed) {
+      this.idsRepaired = true;
+      console.info('[финансы] поправлено одинаковых номеров записей: ' + fixed);
+    }
     const patch = {};
     Component.SAVE_KEYS.forEach(k => { if (saved[k] !== undefined) patch[k] = saved[k]; });
     const year = patch.year !== undefined ? patch.year : this.state.year;
