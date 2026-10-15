@@ -2639,6 +2639,8 @@ class Component extends DCLogic {
       const saved = months[this.monthKey(year, month)];
       patch.months = months;
       patch.blocks = saved ? saved : this.blankBlocks(prev.blocks);
+      // Поле новой траты переводим на выбранный месяц.
+      patch.newSpend = Object.assign({}, prev.newSpend || {}, { date: this.spendDateFor(year, month) });
     }
 
     super.setState(patch, cb);
@@ -2704,6 +2706,9 @@ class Component extends DCLogic {
     patch.months = months;
     const cur = months[this.monthKey(year, month)];
     patch.blocks = cur ? cur : this.blankBlocks(saved.blocks || this.state.blocks);
+    /* Дату в поле новой траты из хранилища не берём: она должна отвечать
+       сегодняшнему дню, а не тому, когда данные сохраняли. */
+    patch.newSpend = Object.assign({}, this.state.newSpend || {}, { date: this.spendDateFor(year, month) });
     return patch;
   }
 
@@ -3455,7 +3460,21 @@ class Component extends DCLogic {
 
   componentDidMount() {
     this.initCloud();
+    // Дата в поле новой траты не должна оставаться той, что лежала в коде.
+    this.setState({ newSpend: Object.assign({}, this.state.newSpend, { date: this.spendDateFor(this.state.year, this.state.month) }) });
     if (this.props.defaultTheme && this.props.defaultTheme !== this.state.theme) this.setState({ theme: this.props.defaultTheme });
+  }
+
+  /* Какую дату подставлять в поле новой траты. Для текущего месяца — сегодня,
+     для любого другого — его первое число: иначе запись уйдёт в чужой месяц
+     и в списке её не будет видно. */
+  spendDateFor(year, month) {
+    const pad = n => ('0' + n).slice(-2);
+    const now = new Date();
+    if (now.getFullYear() === year && now.getMonth() === month) {
+      return now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+    }
+    return year + '-' + pad(month + 1) + '-01';
   }
 
   setAllDone(bid, done) {
