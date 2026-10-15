@@ -3106,9 +3106,15 @@ class Component extends DCLogic {
 
     const now = new Date();
     const daysInMonth = dayData.length;
-    const isCur = now.getFullYear() === st.year && now.getMonth() === st.month;
-    const daysLeft = isCur ? Math.max(1, daysInMonth - now.getDate()) : daysInMonth;
-    const perDayLeft = leftoverUsd / daysLeft;
+    /* Месяц бывает прошедшим, текущим и будущим. Раньше все «не текущие»
+       считались будущими, поэтому в сентябре из октября было написано
+       «осталось 30 дней». */
+    const monthPos = (st.year - now.getFullYear()) * 12 + (st.month - now.getMonth());
+    const isCur = monthPos === 0;
+    const isPast = monthPos < 0;
+    const daysLeft = isCur ? Math.max(1, daysInMonth - now.getDate()) : (isPast ? 0 : daysInMonth);
+    const passedPct = isCur ? Math.round(now.getDate() / daysInMonth * 100) : (isPast ? 100 : 0);
+    const perDayLeft = daysLeft > 0 ? leftoverUsd / daysLeft : 0;
 
     const spendDays = {};
     monthSpends.forEach(s => { spendDays[s.date] = true; });
@@ -3363,9 +3369,9 @@ class Component extends DCLogic {
       tipStyle: { position: 'absolute', top: '26px', left: 0, zIndex: 25, width: 'min(280px, 78vw)', padding: '12px 14px', borderRadius: '12px', background: 'var(--card)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 10px 26px rgba(0,0,0,0.16)', fontSize: '13px' },
       /* Большое число — деньги, которые есть прямо сейчас. Сколько останется
          после всех расходов, показывает карточка «Должно остаться» ниже. */
-      heroLabel: 'актуальный баланс',
+      heroLabel: isCur ? 'актуальный баланс' : (isPast ? 'баланс на конец месяца' : 'ожидаемый баланс'),
       heroValue: this.base(factUsd),
-      heroNote: 'деньги на руках сейчас',
+      heroNote: isCur ? 'деньги на руках сейчас' : (isPast ? 'чем закончился месяц' : 'по плану месяца'),
       hasCarry: Math.abs(carryUsd) >= 0.01,
       carryText: (carryUsd < 0 ? 'минус с ' : 'остаток с ') + prevMonthName + ' · '
         + this.base(Math.abs(carryUsd)) + ' в этом балансе',
@@ -3379,14 +3385,15 @@ class Component extends DCLogic {
       ],
       leftoverText: this.base(leftoverUsd),
       leftoverFormula: this.base(incomeUsd) + ' доходы + ' + this.base(handUsd) + ' на руках − ' + this.base(expenseUsd) + ' расходы' + (handGoneUsd ? ' · ' + this.base(handGoneUsd) + ' уже ушло' : ''),
-      perDayLeftText: this.base(perDayLeft) + ' в день',
-      daysLeftNote: 'осталось ' + daysLeft + ' ' + plural(daysLeft, 'день', 'дня', 'дней'),
+      perDayLeftText: daysLeft > 0 ? this.base(perDayLeft) + ' в день' : '',
+      daysLeftNote: isPast ? 'месяц закончился'
+        : (isCur ? 'осталось ' : 'впереди ') + daysLeft + ' ' + plural(daysLeft, 'день', 'дня', 'дней'),
       heroBars: [
         { label: 'Оплачено', pct: (expenseUsd ? Math.round(paidUsd / expenseUsd * 100) : 0) + '%', note: this.base(paidUsd) + ' из ' + this.base(expenseUsd), dot: { width: '12px', height: '12px', flex: '0 0 12px', borderRadius: '50%', background: 'var(--acc)' }, style: { width: (expenseUsd ? paidUsd / expenseUsd * 100 : 0).toFixed(1) + '%', height: '100%', background: 'var(--acc-deep)', borderRadius: '99px', transition: 'width .3s ease' } },
         { label: 'Пришло', pct: (incomeUsd ? Math.round(gotUsd / incomeUsd * 100) : 0) + '%', note: this.base(gotUsd) + ' из ' + this.base(incomeUsd), dot: { width: '12px', height: '12px', flex: '0 0 12px', borderRadius: '50%', background: 'color-mix(in oklab, var(--acc) 55%, #FFFFFF)' }, style: { width: (incomeUsd ? gotUsd / incomeUsd * 100 : 0).toFixed(1) + '%', height: '100%', background: 'var(--acc)', borderRadius: '99px', transition: 'width .3s ease' } }
       ],
-      monthPassedPct: (isCur ? Math.round(now.getDate() / daysInMonth * 100) : 100) + '%',
-      progressRing: { width: '140px', height: '140px', borderRadius: '50%', background: 'conic-gradient(var(--acc-deep) 0 ' + (isCur ? (now.getDate() / daysInMonth * 100).toFixed(1) : 100) + '%, color-mix(in oklab, var(--acc) 22%, var(--card)) 0)' },
+      monthPassedPct: passedPct + '%',
+      progressRing: { width: '140px', height: '140px', borderRadius: '50%', background: 'conic-gradient(var(--acc-deep) 0 ' + passedPct.toFixed(1) + '%, color-mix(in oklab, var(--acc) 22%, var(--card)) 0)' },
       dayPillStyle: { marginTop: '10px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '12px', background: 'var(--card)', border: '1px solid var(--line)' },
 
       /* Карточка одна, а не две: «Есть сейчас» было частью «Факта на руках»,
