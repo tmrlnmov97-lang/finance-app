@@ -1437,14 +1437,29 @@
   <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
   <div style="display: flex; flex-wrap: wrap; align-items: flex-start; max-width: 1320px; margin: 0 auto;">
 
+  <!-- Просмотр фото профиля во весь экран. Лежит вне сайдбара: внутри его
+       можно было бы обрезать прокруткой. -->
+  <sc-if value="{{ photoOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePhoto }}" style="{{ photoOverlay }}">
+      <img src="{{ avatarSrc }}" style="{{ photoBig }}" />
+      <div style="{{ photoHint }}">нажмите, чтобы закрыть</div>
+    </div>
+  </sc-if>
+
   <aside class="side" style="flex: 1 1 168px; max-width: 220px; align-self: flex-start; padding: 16px 12px 18px; display: flex; flex-direction: column; gap: 12px; border-right: 1px solid var(--line); background: var(--bg);">
-    <div style="display: flex; align-items: center; gap: 10px; padding: 2px 2px 12px; border-bottom: 1px solid var(--line2);">
-      <div style="{{ avatarWrap }}">
-        <img src="{{ avatarSrc }}" onClick="{{ pickAvatar }}" title="Сменить фото" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; cursor: pointer; display: block;" />
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 2px 16px; border-bottom: 1px solid var(--line2);">
+      <div onClick="{{ onAvatarClick }}" title="{{ avatarTitle }}" style="{{ avatarWrap }}">
+        <img src="{{ avatarSrc }}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block;" />
       </div>
-      <div style="flex: 1 1 100px; min-width: 0;">
-        <div style="font-size: 16px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em;">{{ userName }}</div>
+      <div style="width: 100%; min-width: 0; text-align: center;">
+        <div style="font-size: 16px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; overflow-wrap: anywhere;">{{ userName }}</div>
         <div style="font-size: 12.5px; color: var(--dim); line-height: 1.3;">личные деньги</div>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
+        <span onClick="{{ pickAvatar }}" style="{{ avatarLink }}" style-hover="color: var(--acc-ink);">{{ avatarChangeLabel }}</span>
+        <sc-if value="{{ hasAvatar }}" hint-placeholder-val="{{ false }}">
+          <span onClick="{{ dropAvatar }}" style="{{ avatarLinkMuted }}" style-hover="color: var(--rose);">удалить</span>
+        </sc-if>
       </div>
     </div>
 
@@ -2850,7 +2865,9 @@ class Component extends DCLogic {
     input.click();
   }
 
-  setAvatar() { this.pickImage(256, 0.85, url => this.setState({ avatar: url })); }
+  /* 512 px, а не 256: фото теперь открывается во весь экран, и мелкое
+     заметно мылит. Вес одного снимка в webp остаётся в пределах сотни килобайт. */
+  setAvatar() { this.pickImage(512, 0.82, url => this.setState({ avatar: url, photoOpen: false })); }
   clearAvatar() { this.setState({ avatar: '' }); }
 
   setGoalPhoto(id) {
@@ -3374,7 +3391,21 @@ class Component extends DCLogic {
       iconBtn: { cursor: 'pointer', width: '38px', height: '38px', flex: '0 0 38px', borderRadius: '10px', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: st.hide ? 'var(--acc-ink)' : 'var(--mut)', background: st.hide ? 'var(--acc-soft)' : 'transparent', fontSize: '14px', transition: bouncy },
       iconBtnHover: { color: 'var(--ink)', borderColor: 'var(--acc)' },
       iconBtnActive: { background: 'var(--card2)' },
-      avatarWrap: { width: '32px', height: '32px', flex: '0 0 32px', borderRadius: '50%', overflow: 'hidden' },
+      /* Фото профиля крупно: по нажатию открывается во весь экран,
+         менять и удалять — отдельными ссылками под именем. */
+      avatarWrap: { width: '96px', height: '96px', flex: '0 0 96px', borderRadius: '50%', overflow: 'hidden', cursor: st.avatar ? 'zoom-in' : 'pointer', border: '2px solid var(--line)', boxShadow: '0 6px 18px rgba(0,0,0,0.10)' },
+      hasAvatar: !!st.avatar,
+      avatarTitle: st.avatar ? 'Показать фото' : 'Добавить фото',
+      avatarChangeLabel: st.avatar ? 'сменить фото' : 'добавить фото',
+      avatarLink: { cursor: 'pointer', fontSize: '12.5px', color: 'var(--acc)', borderBottom: '1px dashed color-mix(in oklab, var(--acc) 45%, transparent)' },
+      avatarLinkMuted: { cursor: 'pointer', fontSize: '12.5px', color: 'var(--dim)' },
+      onAvatarClick: () => { if (st.avatar) this.setState({ photoOpen: true }); else this.setAvatar(); },
+      closePhoto: () => this.setState({ photoOpen: false }),
+      dropAvatar: () => this.setState({ avatar: '', photoOpen: false }),
+      photoOpen: !!st.photoOpen && !!st.avatar,
+      photoOverlay: { position: 'fixed', inset: 0, zIndex: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px', padding: '24px', background: 'rgba(16,16,20,0.78)', cursor: 'zoom-out' },
+      photoBig: { maxWidth: 'min(520px, 86vw)', maxHeight: '74vh', borderRadius: '20px', objectFit: 'contain', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' },
+      photoHint: { color: 'rgba(255,255,255,0.75)', fontSize: '13px' },
       eyeSlash: { opacity: st.hide ? 1 : 0, transition: 'opacity .2s ease' },
       hideTitle: st.hide ? 'показать суммы' : 'скрыть суммы',
       yStep: { cursor: 'pointer', width: '30px', height: '30px', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mut)', background: 'var(--card2)' },
