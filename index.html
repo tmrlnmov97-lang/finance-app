@@ -2479,11 +2479,18 @@ class Component extends DCLogic {
     try {
       /* Проверяем, не записал ли что-то другой открытый экран — вторая вкладка
          или телефон. Если строка в хранилище новее нашей, свою версию НЕ пишем:
-         иначе чужие правки молча пропадут. */
+         иначе чужие правки молча пропадут.
+
+         Сравниваем МОМЕНТЫ ВРЕМЕНИ, а не строки: база хранит timestamptz и
+         отдаёт его в своём написании («...+00:00»), а не в том, какое мы
+         отправили («...Z»). Сравнение строк давало ложную тревогу после
+         каждой записи. Секунда допуска — на расхождение часов. */
       const head = await this.client.from('finance_state')
         .select('updated_at').eq('user_id', this.userId).maybeSingle();
       if (head.error) throw head.error;
-      if (head.data && this.rowStamp && head.data.updated_at !== this.rowStamp) {
+      const theirs = head.data && head.data.updated_at ? Date.parse(head.data.updated_at) : 0;
+      const ours = this.rowStamp ? Date.parse(this.rowStamp) : 0;
+      if (theirs && ours && theirs - ours > 1000) {
         this.pendingSave = true;
         this.showConflict();
         return;
@@ -2491,9 +2498,10 @@ class Component extends DCLogic {
       const stamp = new Date().toISOString();
       const res = await this.client.from('finance_state').upsert({
         user_id: this.userId, data: this.saveBody(), updated_at: stamp
-      });
+      }).select('updated_at').maybeSingle();
       if (res.error) throw res.error;
-      this.rowStamp = stamp;
+      // Запоминаем метку в том виде, в каком её вернула база.
+      this.rowStamp = (res.data && res.data.updated_at) || stamp;
       this.saveFails = 0;
       this.setSaveState('saved');
     } catch (e) {
