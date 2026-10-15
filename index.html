@@ -1784,30 +1784,43 @@
                         </sc-if>
                       </div>
 
-                      <sc-for list="{{ b.items }}" as="it" hint-placeholder-count="4">
-                        <div style="{{ it.rowStyle }}">
-                          <sc-if value="{{ it.viewing }}" hint-placeholder-val="{{ true }}">
-                            <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
-                              <span onClick="{{ it.onToggle }}" style="{{ it.mark }}">✓</span>
-                              <span style="{{ it.nameStyle }}">{{ it.name }}</span>
-                              <span style="{{ it.amountStyle }}">{{ it.amount }}</span>
-                              <span onClick="{{ it.onEdit }}" style="cursor: pointer; color: var(--dim); font-size: 15px; line-height: 1; padding: 2px 3px; letter-spacing: 2px;" style-hover="color: var(--acc);">⋮</span>
-                            </div>
-                          </sc-if>
-                          <sc-if value="{{ it.editing }}" hint-placeholder-val="{{ false }}">
-                            <div style="display: flex; align-items: center; gap: 6px; width: 100%; flex-wrap: wrap;">
-                              <input value="{{ it.draftAmount }}" onChange="{{ it.onAmount }}" style="{{ inputSm }}" />
-                              <select value="{{ it.draftCur }}" onChange="{{ it.onCur }}" style="{{ inputMd }}">
-                                <sc-for list="{{ curOptionsFull }}" as="c" hint-placeholder-count="4">
-                                  <option value="{{ c.value }}">{{ c.label }}</option>
-                                </sc-for>
-                              </select>
-                              <input value="{{ it.draftName }}" onChange="{{ it.onName }}" placeholder="на что" style="{{ inputFlex }}" />
-                              <button onClick="{{ it.onSave }}" style="{{ btnPrimarySm }}">ок</button>
-                              <button onClick="{{ it.onDelete }}" style="{{ btnDangerSm }}">удалить</button>
-                            </div>
-                          </sc-if>
+                      <sc-for list="{{ b.curGroups }}" as="cg" hint-placeholder-count="2">
+                        <div onClick="{{ cg.onToggle }}" title="{{ cg.hint }}" style="{{ cg.headStyle }}">
+                          <span style="{{ cg.chevStyle }}">{{ cg.chevron }}</span>
+                          <span style="{{ cg.tileStyle }}">{{ cg.sign }}</span>
+                          <span style="{{ cg.nameStyle }}">{{ cg.curName }}</span>
+                          <span style="{{ cg.countStyle }}">{{ cg.countText }}</span>
+                          <span style="{{ cg.totalStyle }}">{{ cg.total }}</span>
                         </div>
+                        <sc-if value="{{ cg.open }}" hint-placeholder-val="{{ true }}">
+                          <div style="padding: 0 2px 2px;">
+                            <sc-for list="{{ cg.items }}" as="it" hint-placeholder-count="3">
+                              <div style="{{ it.rowStyle }}">
+                                <sc-if value="{{ it.viewing }}" hint-placeholder-val="{{ true }}">
+                                  <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
+                                    <span onClick="{{ it.onToggle }}" style="{{ it.mark }}">✓</span>
+                                    <span style="{{ it.nameStyle }}">{{ it.name }}</span>
+                                    <span style="{{ it.amountStyle }}">{{ it.amount }}</span>
+                                    <span onClick="{{ it.onEdit }}" style="cursor: pointer; color: var(--dim); font-size: 15px; line-height: 1; padding: 2px 3px; letter-spacing: 2px;" style-hover="color: var(--acc);">⋮</span>
+                                  </div>
+                                </sc-if>
+                                <sc-if value="{{ it.editing }}" hint-placeholder-val="{{ false }}">
+                                  <div style="display: flex; align-items: center; gap: 6px; width: 100%; flex-wrap: wrap;">
+                                    <input value="{{ it.draftAmount }}" onChange="{{ it.onAmount }}" style="{{ inputSm }}" />
+                                    <select value="{{ it.draftCur }}" onChange="{{ it.onCur }}" style="{{ inputMd }}">
+                                      <sc-for list="{{ curOptionsFull }}" as="c" hint-placeholder-count="4">
+                                        <option value="{{ c.value }}">{{ c.label }}</option>
+                                      </sc-for>
+                                    </select>
+                                    <input value="{{ it.draftName }}" onChange="{{ it.onName }}" placeholder="на что" style="{{ inputFlex }}" />
+                                    <button onClick="{{ it.onSave }}" style="{{ btnPrimarySm }}">ок</button>
+                                    <button onClick="{{ it.onDelete }}" style="{{ btnDangerSm }}">удалить</button>
+                                  </div>
+                                </sc-if>
+                              </div>
+                            </sc-for>
+                          </div>
+                        </sc-if>
                       </sc-for>
 
                       <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
@@ -2380,6 +2393,7 @@ class Component extends DCLogic {
   "allYear": false,
   "pickerOpen": false,
   "editing": null,
+  "curClosed": {},
   "draft": {},
   "newItem": {},
   "newSaving": {},
@@ -2452,7 +2466,7 @@ class Component extends DCLogic {
      пользователя. Политики RLS пускают к строке только её владельца, так что
      чужой глаз данных не увидит, даже зная адрес сайта. */
   static SAVE_KEYS = ['months', 'year', 'month', 'spends', 'savings', 'credits', 'goals',
-    'theme', 'accent', 'name', 'avatar', 'base', 'rates', 'goldPrice'];
+    'theme', 'accent', 'name', 'avatar', 'base', 'rates', 'goldPrice', 'curClosed'];
 
   /* Вызывается из componentDidMount приложения (свой хук здесь заводить нельзя:
      в классе ниже уже есть componentDidMount, и он затирает одноимённый метод). */
@@ -3036,7 +3050,7 @@ class Component extends DCLogic {
         : isHand ? ''
         : 'оплачено ' + this.base(doneUsd) + ' · осталось ' + this.base(usdTotal - doneUsd);
       const n = st.newItem[b.id] || {};
-      return {
+      const block = {
         id: b.id, title: b.title, cur: b.cur, curName: CUR_NAME[b.cur],
         curTile: { width: '42px', height: '42px', flex: '0 0 42px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 600, background: 'color-mix(in oklab, ' + (b.kind === 'income' ? 'var(--acc)' : b.kind === 'hand' ? 'var(--mint)' : 'var(--rose)') + ' 15%, var(--card))', color: b.kind === 'income' ? 'var(--acc-ink)' : b.kind === 'hand' ? 'var(--mint)' : 'var(--rose)' },
         pct: (usdTotal ? Math.round(doneUsd / usdTotal * 100) : 0) + '%',
@@ -3061,6 +3075,7 @@ class Component extends DCLogic {
           const editing = st.editing === i.id;
           return {
             id: i.id, viewing: !editing, editing: editing,
+            curOf: cur, rawAmount: i.amount, isDone: !!i.done,
             rowStyle: { display: 'flex', alignItems: 'center', minHeight: '44px', padding: '9px 0', borderBottom: '1px solid var(--line2)' },
             mark: { width: '20px', height: '20px', flex: '0 0 20px', borderRadius: '50%', cursor: 'pointer', border: i.done ? '1px solid ' + accent : '1.5px solid var(--line-strong)', background: i.done ? accent : 'transparent', color: i.done ? '#FFFFFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', transition: 'all .18s ease' },
             text: this.fmt(i.amount, cur) + (i.name ? ' — ' + i.name : ''),
@@ -3080,6 +3095,9 @@ class Component extends DCLogic {
           };
         })
       };
+      // Строки внутри блока раскладываем по валютам: каждая со своим подытогом.
+      block.curGroups = this.currencyGroups(b, block.items, st);
+      return block;
     };
 
     const budgetGroups = [
@@ -3640,6 +3658,48 @@ class Component extends DCLogic {
       return now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     }
     return year + '-' + pad(month + 1) + '-01';
+  }
+
+  /* ——— раскладка строк блока по валютам ———
+     Внутри «Доходов», «Расходов» и «Есть сейчас» строки могут быть в разных
+     валютах, и общий итог блока складывать их не умеет. Поэтому строки
+     собираются в группы по валюте: у каждой свой подытог, группу можно
+     свернуть. Порядок групп — по первому появлению, чтобы они не прыгали. */
+  currencyGroups(b, items, st) {
+    const order = [], byCur = {};
+    items.forEach(it => {
+      if (!byCur[it.curOf]) { byCur[it.curOf] = []; order.push(it.curOf); }
+      byCur[it.curOf].push(it);
+    });
+    const closed = st.curClosed || {};
+    const tone = b.kind === 'income' ? 'var(--acc)' : b.kind === 'hand' ? 'var(--mint)' : 'var(--rose)';
+    const ink = b.kind === 'income' ? 'var(--acc-ink)' : b.kind === 'hand' ? 'var(--mint)' : 'var(--rose)';
+    return order.map(c => {
+      const list = byCur[c];
+      const key = b.id + ':' + c;
+      const open = !closed[key];
+      const total = list.reduce((a, it) => a + it.rawAmount, 0);
+      const doneCount = list.filter(it => it.isDone).length;
+      return {
+        cur: c, sign: c, curName: CUR_NAME[c] || c,
+        total: this.fmt(total, c),
+        countText: doneCount + ' / ' + list.length,
+        open: open, chevron: open ? '▾' : '▸',
+        hint: open ? 'Свернуть' : 'Развернуть',
+        headStyle: { display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', marginTop: '10px', padding: '9px 11px', borderRadius: '12px', background: 'var(--card2)', border: '1px solid var(--line2)', userSelect: 'none' },
+        chevStyle: { flex: '0 0 11px', width: '11px', color: 'var(--dim)', fontSize: '13px', lineHeight: 1 },
+        tileStyle: { flex: '0 0 22px', width: '22px', height: '22px', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 600, background: 'color-mix(in oklab, ' + tone + ' 16%, var(--card))', color: ink },
+        nameStyle: { fontSize: '13.5px', fontWeight: 600, color: 'var(--mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+        countStyle: { marginLeft: 'auto', fontSize: '11.5px', color: 'var(--dim)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
+        totalStyle: { fontSize: '14.5px', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
+        onToggle: () => this.setState(s => {
+          const next = Object.assign({}, s.curClosed || {});
+          if (next[key]) delete next[key]; else next[key] = true;
+          return { curClosed: next };
+        }),
+        items: list
+      };
+    });
   }
 
   setAllDone(bid, done) {
