@@ -1510,14 +1510,14 @@
           <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
 
             <div style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 220px; min-width: 0;">
-              <div style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mut);">остаётся до конца месяца</div>
-              <div style="font-family: 'Instrument Serif', serif; font-size: clamp(38px, 10vw, 56px); line-height: 1.02; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;">{{ leftoverText }}</div>
+              <div style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mut);">{{ heroLabel }}</div>
+              <div style="font-family: 'Instrument Serif', serif; font-size: clamp(38px, 10vw, 56px); line-height: 1.02; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;">{{ heroValue }}</div>
               <div style="display: flex; align-items: center; gap: 8px; position: relative;">
-                <span style="font-size: 13px; color: var(--mut);">после всех расходов месяца</span>
+                <span style="font-size: 13px; color: var(--mut);">{{ heroNote }}</span>
                 <span onMouseEnter="{{ showTip }}" onMouseLeave="{{ hideTip }}" onClick="{{ toggleTip }}" style="{{ infoDot }}">i</span>
                 <sc-if value="{{ tipOpen }}" hint-placeholder-val="{{ false }}">
                   <div style="{{ tipStyle }}">
-                    <sc-for list="{{ tipRows }}" as="r" hint-placeholder-count="3">
+                    <sc-for list="{{ tipRows }}" as="r" hint-placeholder-count="5">
                       <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 5px 0;">
                         <span style="color: var(--mut);">{{ r.label }}</span>
                         <span style="font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap;">{{ r.value }}</span>
@@ -1526,6 +1526,14 @@
                   </div>
                 </sc-if>
               </div>
+              <sc-if value="{{ hasCarry }}" hint-placeholder-val="{{ true }}">
+                <div style="{{ carryPillStyle }}">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 12h13"></path><path d="M13 7l5 5-5 5"></path>
+                  </svg>
+                  {{ carryText }}
+                </div>
+              </sc-if>
               <div style="{{ dayPillStyle }}">
                 <span style="display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 13px;">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -2619,6 +2627,50 @@ class Component extends DCLogic {
 
   monthKey(year, month) { return String(year) + '-' + String(month + 1); }
 
+  /* ——— остаток месяца и перенос на следующий ———
+     Остаток сентября становится «остатком с прошлого» в октябре, а в ноябре
+     учитывается уже вместе с ним — цепочкой. Считаем каждый раз заново, а не
+     храним строкой: поправили прошлый месяц — следующий обновился сам. */
+
+  monthBlocks(year, month) {
+    const st = this.state;
+    if (year === st.year && month === st.month) return st.blocks || [];
+    return (st.months || {})[this.monthKey(year, month)] || null;
+  }
+
+  /* Мелкие траты месяца из дневника, в базовой валюте. */
+  diaryUsdFor(year, month) {
+    const prefix = year + '-' + ('0' + (month + 1)).slice(-2);
+    return (this.state.spends || [])
+      .filter(s => String(s.date).indexOf(prefix) === 0)
+      .reduce((a, s) => a + this.usd(s.amount, s.cur), 0);
+  }
+
+  /* Сколько осталось по итогам месяца: перенос + доходы + наличные
+     − расходы − мелкие траты. */
+  monthLeftoverUsd(year, month, depth) {
+    const blocks = this.monthBlocks(year, month);
+    if (!blocks) return 0;
+    const sum = (items, cur) => items.reduce((a, i) => a + this.usd(i.amount, i.cur || cur), 0);
+    const of = kind => blocks.filter(b => b.kind === kind);
+    const income = of('income').reduce((a, b) => a + sum(b.items, b.cur), 0);
+    const expense = of('expense').reduce((a, b) => a + sum(b.items, b.cur), 0);
+    const handAll = of('hand').reduce((a, b) => a + sum(b.items, b.cur), 0);
+    const handGone = of('hand').reduce((a, b) => a + sum(b.items.filter(i => i.done), b.cur), 0);
+    return this.carryInUsd(year, month, depth)
+      + income + (handAll - handGone) - expense - this.diaryUsdFor(year, month);
+  }
+
+  /* Сколько пришло из прошлого месяца. Пустой месяц обрывает цепочку. */
+  carryInUsd(year, month, depth) {
+    const d = depth || 0;
+    if (d > 36) return 0;                       // предохранитель от длинной цепочки
+    const py = month === 0 ? year - 1 : year;
+    const pm = month === 0 ? 11 : month - 1;
+    if (!this.monthBlocks(py, pm)) return 0;
+    return this.monthLeftoverUsd(py, pm, d + 1);
+  }
+
   blankBlocks(blocks) {
     return (blocks || []).map(b => Object.assign({}, b, { items: [] }));
   }
@@ -2927,9 +2979,8 @@ class Component extends DCLogic {
     const handAllUsd = handBlocks.reduce((a, b) => a + sumUsd(b.items, b.cur), 0);
     const handGoneUsd = handBlocks.reduce((a, b) => a + sumUsd(b.items.filter(i => i.done), b.cur), 0);
     const handUsd = handAllUsd - handGoneUsd;
-    const availableUsd = incomeUsd + handUsd;
-    const factUsd = handUsd + gotUsd - paidUsd;
-    const leftoverUsd = availableUsd - expenseUsd;
+    /* Итоговые суммы считаем ниже, после дневника мелких трат:
+       они входят и в текущий баланс, и в остаток месяца. */
 
     const mkBlock = b => {
       const isHand = b.kind === 'hand';
@@ -3028,6 +3079,15 @@ class Component extends DCLogic {
     const mPrefix = st.year + '-' + ('0' + (st.month + 1)).slice(-2);
     const monthSpends = st.spends.filter(s => String(s.date).indexOf(mPrefix) === 0);
     const spendUsd = monthSpends.reduce((a, s) => a + this.usd(s.amount, s.cur), 0);
+
+    /* Перенос с прошлого месяца — часть сегодняшних денег наравне с наличными. */
+    const carryUsd = this.carryInUsd(st.year, st.month, 0);
+    const prevMonthName = MGEN[st.month === 0 ? 11 : st.month - 1];
+    const availableUsd = carryUsd + incomeUsd + handUsd;
+    // Деньги, которые реально есть сейчас: пришло минус оплаченное и мелкие траты.
+    const factUsd = carryUsd + handUsd + gotUsd - paidUsd - spendUsd;
+    // Сколько останется, когда всё запланированное будет оплачено.
+    const leftoverUsd = availableUsd - expenseUsd - spendUsd;
 
     const catTotals = {};
     expenseBlocks.forEach(b => b.items.forEach(i => {
@@ -3301,10 +3361,21 @@ class Component extends DCLogic {
       toggleTip: () => this.setState(s => ({ tipOpen: !s.tipOpen })),
       infoDot: { cursor: 'help', width: '19px', height: '19px', flex: '0 0 19px', borderRadius: '50%', border: '1px solid var(--line-strong)', color: 'var(--mut)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontStyle: 'italic', lineHeight: 1, opacity: 0.9 },
       tipStyle: { position: 'absolute', top: '26px', left: 0, zIndex: 25, width: 'min(280px, 78vw)', padding: '12px 14px', borderRadius: '12px', background: 'var(--card)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 10px 26px rgba(0,0,0,0.16)', fontSize: '13px' },
+      /* Большое число — деньги, которые есть прямо сейчас. Сколько останется
+         после всех расходов, показывает карточка «Должно остаться» ниже. */
+      heroLabel: 'актуальный баланс',
+      heroValue: this.base(factUsd),
+      heroNote: 'деньги на руках сейчас',
+      hasCarry: Math.abs(carryUsd) >= 0.01,
+      carryText: (carryUsd < 0 ? 'минус с ' : 'остаток с ') + prevMonthName + ' · '
+        + this.base(Math.abs(carryUsd)) + ' в этом балансе',
+      carryPillStyle: { marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '12px', background: 'color-mix(in oklab, var(--acc) 14%, var(--card))', border: '1px solid color-mix(in oklab, var(--acc) 26%, var(--line))', color: 'var(--acc-deep)', fontSize: '13px', fontWeight: 500 },
       tipRows: [
+        { label: 'Остаток с прошлого', value: this.base(carryUsd) },
         { label: 'Доходы', value: this.base(incomeUsd) },
-        { label: 'На руках', value: this.base(handUsd) },
-        { label: 'Расходы', value: '− ' + this.base(expenseUsd) }
+        { label: 'Наличные', value: this.base(handUsd) },
+        { label: 'Расходы', value: '− ' + this.base(expenseUsd) },
+        { label: 'Мелкие траты', value: '− ' + this.base(spendUsd) }
       ],
       leftoverText: this.base(leftoverUsd),
       leftoverFormula: this.base(incomeUsd) + ' доходы + ' + this.base(handUsd) + ' на руках − ' + this.base(expenseUsd) + ' расходы' + (handGoneUsd ? ' · ' + this.base(handGoneUsd) + ' уже ушло' : ''),
@@ -3322,9 +3393,8 @@ class Component extends DCLogic {
          и слагаемое рядом с суммой читалось как ещё один остаток. Теперь
          остаток наличных показан в подписи, внутри формулы. */
       overKpis: [
-        { label: 'Сейчас на руках', value: this.base(factUsd),
-          note: this.base(gotUsd) + ' пришло − ' + this.base(paidUsd) + ' оплачено'
-                + (handUsd ? ' + ' + this.base(handUsd) + ' наличными' : ''),
+        { label: 'Должно остаться', value: this.base(leftoverUsd),
+          note: 'после всех расходов месяца',
           tone: 'var(--acc)', paths: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7.5V12l3.5 2'] },
         { label: 'Доходы', value: this.base(incomeUsd), note: 'получено ' + this.base(gotUsd), tone: 'var(--blue)', paths: ['M12 19V5', 'M6 11l6-6 6 6'] },
         { label: 'Расходы', value: this.base(expenseUsd + spendUsd), note: 'мелких ' + this.base(spendUsd) + ' · ' + this.base(dayBurn) + ' в день', tone: 'var(--rose)', paths: ['M12 5v14', 'M18 13l-6 6-6-6'] }
