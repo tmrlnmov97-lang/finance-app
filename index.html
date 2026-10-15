@@ -1852,17 +1852,41 @@
                 </div>
                 <sc-for list="{{ d.items }}" as="s" hint-placeholder-count="3">
                   <div style="display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--line2);">
-                    <span style="{{ s.tileStyle }}">
-                      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <sc-for list="{{ s.paths }}" as="p" hint-placeholder-count="2">
-                          <path d="{{ p.d }}"></path>
-                        </sc-for>
-                      </svg>
-                    </span>
-                    <span style="flex: 1; min-width: 0; font-weight: 500;">{{ s.name }}</span>
-                    <span style="font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap;">{{ s.amount }}</span>
-                    <span style="{{ s.catStyle }}">{{ s.cat }}</span>
-                    <span onClick="{{ s.onDelete }}" style="cursor: pointer; color: var(--dim); font-size: 16px; line-height: 1; padding: 2px 4px;" style-hover="color: var(--rose);">×</span>
+                    <sc-if value="{{ s.viewing }}" hint-placeholder-val="{{ true }}">
+                      <div style="display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;">
+                        <span style="{{ s.tileStyle }}">
+                          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <sc-for list="{{ s.paths }}" as="p" hint-placeholder-count="2">
+                              <path d="{{ p.d }}"></path>
+                            </sc-for>
+                          </svg>
+                        </span>
+                        <span style="flex: 1; min-width: 0; font-weight: 500;">{{ s.name }}</span>
+                        <span style="font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap;">{{ s.amount }}</span>
+                        <span style="{{ s.catStyle }}">{{ s.cat }}</span>
+                        <span onClick="{{ s.onEdit }}" style="cursor: pointer; color: var(--dim); font-size: 15px; line-height: 1; padding: 2px 3px; letter-spacing: 2px;" style-hover="color: var(--acc);">⋮</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ s.editing }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; align-items: center; gap: 6px; width: 100%; flex-wrap: wrap;">
+                        <input type="date" value="{{ s.draftDate }}" onChange="{{ s.onDate }}" style="{{ inputMd }}" />
+                        <input value="{{ s.draftAmount }}" onChange="{{ s.onAmount }}" placeholder="сумма" style="{{ inputSm }}" />
+                        <select value="{{ s.draftCur }}" onChange="{{ s.onCur }}" style="{{ inputMd }}">
+                          <sc-for list="{{ curOptionsFull }}" as="c" hint-placeholder-count="4">
+                            <option value="{{ c.value }}">{{ c.label }}</option>
+                          </sc-for>
+                        </select>
+                        <select value="{{ s.draftCat }}" onChange="{{ s.onCat }}" style="{{ inputMd }}">
+                          <sc-for list="{{ catOptions }}" as="c" hint-placeholder-count="8">
+                            <option value="{{ c.value }}">{{ c.label }}</option>
+                          </sc-for>
+                        </select>
+                        <input value="{{ s.draftName }}" onChange="{{ s.onName }}" placeholder="на что" style="{{ inputFlex }}" />
+                        <button onClick="{{ s.onSave }}" style="{{ btnPrimarySm }}">ок</button>
+                        <button onClick="{{ s.onCancel }}" style="{{ btnGhostSm }}">отмена</button>
+                        <button onClick="{{ s.onDelete }}" style="{{ btnDangerSm }}">удалить</button>
+                      </div>
+                    </sc-if>
                   </div>
                 </sc-for>
               </div>
@@ -3139,11 +3163,39 @@ class Component extends DCLogic {
             text: this.fmt(s.amount, s.cur) + (s.name ? ' — ' + s.name : ''),
             name: s.name || s.cat, amount: this.fmt(s.amount, s.cur),
             cat: s.cat,
+            /* Строку дневника можно править целиком: дата, сумма, валюта,
+               категория и подпись. Правка идёт в черновик, запись меняется
+               только по «ок». */
+            viewing: st.editing !== 'spend:' + s.id, editing: st.editing === 'spend:' + s.id,
+            draftDate: st.draft.date || s.date,
+            draftAmount: st.draft.amount !== undefined ? st.draft.amount : String(s.amount),
+            draftCur: st.draft.cur || s.cur,
+            draftCat: st.draft.cat || s.cat,
+            draftName: st.draft.name !== undefined ? st.draft.name : (s.name || ''),
+            onEdit: () => this.setState({ editing: 'spend:' + s.id, draft: { date: s.date, amount: String(s.amount), cur: s.cur, cat: s.cat, name: s.name || '' } }),
+            onDate: e => this.setState({ draft: Object.assign({}, this.state.draft, { date: e.target.value }) }),
+            onAmount: e => this.setState({ draft: Object.assign({}, this.state.draft, { amount: e.target.value }) }),
+            onCur: e => this.setState({ draft: Object.assign({}, this.state.draft, { cur: e.target.value }) }),
+            onCat: e => this.setState({ draft: Object.assign({}, this.state.draft, { cat: e.target.value }) }),
+            onName: e => this.setState({ draft: Object.assign({}, this.state.draft, { name: e.target.value }) }),
+            onSave: () => {
+              const dr = this.state.draft;
+              const v = parseFloat(String(dr.amount).replace(',', '.'));
+              if (!v) return;                       // пустую сумму не сохраняем
+              this.setState(x => ({
+                editing: null, draft: {},
+                spends: x.spends.map(y => y.id !== s.id ? y : Object.assign({}, y, {
+                  date: dr.date || y.date, amount: v, cur: dr.cur || y.cur,
+                  cat: dr.cat || y.cat, name: dr.name || ''
+                }))
+              }));
+            },
+            onCancel: () => this.setState({ editing: null, draft: {} }),
             paths: (CAT_ICON[s.cat] || CAT_ICON['прочее']).map(d => ({ d: d })),
             tileStyle: { width: '34px', height: '34px', flex: '0 0 34px', borderRadius: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in oklab, ' + (CAT_COLOR[s.cat] || '#9A92AE') + ' 15%, var(--card))', color: CAT_COLOR[s.cat] || '#9A92AE' },
             catStyle: { fontSize: '12px', padding: '4px 10px', borderRadius: '999px', whiteSpace: 'nowrap', background: 'color-mix(in oklab, ' + (CAT_COLOR[s.cat] || '#9A92AE') + ' 13%, var(--card))', color: 'var(--mut)' },
             dotStyle: { width: '8px', height: '8px', borderRadius: '50%', flex: '0 0 8px', background: CAT_COLOR[s.cat] || '#9A92AE' },
-            onDelete: () => this.setState(x => ({ spends: x.spends.filter(y => y.id !== s.id) }))
+            onDelete: () => this.setState(x => ({ editing: null, draft: {}, spends: x.spends.filter(y => y.id !== s.id) }))
           }))
         };
       });
