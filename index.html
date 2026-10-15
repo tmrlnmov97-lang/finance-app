@@ -2424,16 +2424,37 @@ class Component extends DCLogic {
       this.saveReady = true;
       // Если чинили номера записей — сразу закрепляем починку в хранилище.
       if (this.idsRepaired) { this.idsRepaired = false; this.queueSave(); }
+
+      /* Страницу могут закрыть раньше, чем пройдёт отложенная запись.
+         visibilitychange срабатывает, пока страница ещё жива и успевает
+         дописать; pagehide оставляем последней подстраховкой. */
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && this.pendingSave) {
+          clearTimeout(this.saveTimer);
+          this.flushSave();
+        }
+      });
       window.addEventListener('pagehide', () => { if (this.pendingSave) this.flushSave(); });
+      // Последний рубеж: не дать закрыть вкладку с несохранённой правкой.
+      window.addEventListener('beforeunload', e => {
+        if (!this.pendingSave && !this.saving) return;
+        e.preventDefault();
+        e.returnValue = '';
+      });
     } catch (e) {
       console.error('[финансы] не удалось подключить хранилище:', e);
+      this.setSaveState('error', 'Нет связи с хранилищем');
     }
   }
 
   async loadRow() {
-    const res = await this.client.from('finance_state').select('data').eq('user_id', this.userId).maybeSingle();
+    const res = await this.client.from('finance_state')
+      .select('data,updated_at').eq('user_id', this.userId).maybeSingle();
     if (res.error) { console.error('[финансы] чтение:', res.error); return; }
-    const saved = res.data && res.data.data;
+    if (!res.data) return;
+    // Метка версии строки: по ней видно, писал ли кто-то ещё, пока мы работали.
+    this.rowStamp = res.data.updated_at || null;
+    const saved = res.data.data;
     if (!saved) return;
     const patch = this.applySaved(saved);
     if (Object.keys(patch).length) this.setState(patch);
@@ -2441,29 +2462,122 @@ class Component extends DCLogic {
 
   queueSave() {
     if (!this.saveReady || !this.client) return;
+    if (this.conflict) return;           // ждём решения пользователя, не перезаписываем
     this.pendingSave = true;
+    this.setSaveState('pending');
     clearTimeout(this.saveTimer);
     // Пачка правок подряд (набор текста) уходит одной записью.
     this.saveTimer = setTimeout(() => this.flushSave(), 800);
   }
 
   async flushSave() {
-    if (!this.client || !this.userId) return;
+    if (!this.client || !this.userId || this.conflict) return;
     if (this.saving) { this.saveAgain = true; return; }   // одна запись за раз
     this.saving = true;
     this.pendingSave = false;
+    this.setSaveState('saving');
     try {
+      /* Проверяем, не записал ли что-то другой открытый экран — вторая вкладка
+         или телефон. Если строка в хранилище новее нашей, свою версию НЕ пишем:
+         иначе чужие правки молча пропадут. */
+      const head = await this.client.from('finance_state')
+        .select('updated_at').eq('user_id', this.userId).maybeSingle();
+      if (head.error) throw head.error;
+      if (head.data && this.rowStamp && head.data.updated_at !== this.rowStamp) {
+        this.pendingSave = true;
+        this.showConflict();
+        return;
+      }
+      const stamp = new Date().toISOString();
       const res = await this.client.from('finance_state').upsert({
-        user_id: this.userId, data: this.saveBody(), updated_at: new Date().toISOString()
+        user_id: this.userId, data: this.saveBody(), updated_at: stamp
       });
       if (res.error) throw res.error;
+      this.rowStamp = stamp;
+      this.saveFails = 0;
+      this.setSaveState('saved');
     } catch (e) {
       console.error('[финансы] не удалось сохранить:', e);
       this.pendingSave = true;
+      this.saveFails = (this.saveFails || 0) + 1;
+      this.setSaveState('error', 'Не сохранено — пробую снова');
+      // Повторяем с нарастающей паузой, пока не пройдёт.
+      clearTimeout(this.saveTimer);
+      this.saveTimer = setTimeout(() => this.flushSave(), Math.min(30000, 1000 * Math.pow(2, this.saveFails)));
     } finally {
       this.saving = false;
       if (this.saveAgain) { this.saveAgain = false; this.queueSave(); }
     }
+  }
+
+  /* ——— видимый знак сохранения ———
+     Молчаливая потеря — худшее, что может случиться с деньгами, поэтому
+     состояние записи всегда на экране, а не только в консоли. */
+  setSaveState(kind, text) {
+    let el = this._saveBadge;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'save-badge';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      el.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:9999;'
+        + 'display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;'
+        + 'font:500 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;'
+        + 'border:1px solid;transition:opacity .25s;pointer-events:none;'
+        + 'max-width:calc(100vw - 32px);box-sizing:border-box';
+      document.body.appendChild(el);
+      this._saveBadge = el;
+    }
+    const look = {
+      pending: ['Есть несохранённое', '#8a6d1f', '#fdf6e3', '#e8d9a8'],
+      saving:  ['Сохраняю…',          '#4a4a52', '#f2f2f4', '#dcdce2'],
+      saved:   ['Сохранено',          '#2f6b4d', '#e8f3ec', '#bfdfcd'],
+      error:   ['Не сохранено',       '#9b2230', '#fdeaec', '#f3c3c9']
+    }[kind] || ['', '#4a4a52', '#f2f2f4', '#dcdce2'];
+    el.textContent = text || look[0];
+    el.style.color = look[1];
+    el.style.background = look[2];
+    el.style.borderColor = look[3];
+    el.style.opacity = '1';
+    clearTimeout(this._badgeTimer);
+    if (kind === 'saved') {
+      this._badgeTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+    }
+  }
+
+  /* Строку в хранилище поменял кто-то другой — вторая вкладка или телефон.
+     Выбор отдаём пользователю: нельзя молча затереть ни ту, ни эту версию. */
+  showConflict() {
+    if (this.conflict) return;
+    this.conflict = true;
+    clearTimeout(this.saveTimer);
+    this.setSaveState('error', 'Данные изменены в другом окне');
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;'
+      + 'align-items:center;justify-content:center;padding:16px;background:rgba(20,20,24,.55)';
+    const card = document.createElement('div');
+    card.style.cssText = 'max-width:420px;width:100%;box-sizing:border-box;background:#fff;color:#1b1b20;'
+      + 'border-radius:18px;padding:24px;font:400 15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;'
+      + 'box-shadow:0 24px 60px -24px rgba(0,0,0,.45)';
+    card.innerHTML = '<div style="font-size:18px;font-weight:600;margin-bottom:10px">'
+      + 'Эти данные изменили в другом месте</div>'
+      + '<p style="margin:0 0 18px;color:#55555f">Сайт открыт ещё где-то — в другой вкладке или на телефоне — '
+      + 'и там записали свою версию. Чтобы ничего не пропало, выберите, какую оставить.</p>'
+      + '<div style="display:flex;flex-direction:column;gap:8px">'
+      + '<button id="cf-mine" style="padding:11px 16px;border-radius:10px;border:0;background:#6d5a9e;color:#fff;font:600 15px system-ui;cursor:pointer">Оставить правки этого окна</button>'
+      + '<button id="cf-theirs" style="padding:11px 16px;border-radius:10px;border:1px solid #d9d9e0;background:#fff;color:#1b1b20;font:600 15px system-ui;cursor:pointer">Загрузить то, что в хранилище</button>'
+      + '</div>';
+    box.appendChild(card);
+    document.body.appendChild(box);
+    card.querySelector('#cf-mine').onclick = async () => {
+      const head = await this.client.from('finance_state')
+        .select('updated_at').eq('user_id', this.userId).maybeSingle();
+      this.rowStamp = head.data ? head.data.updated_at : null;   // принимаем чужую метку
+      box.remove();
+      this.conflict = false;
+      this.queueSave();                                          // и пишем свою версию поверх
+    };
+    card.querySelector('#cf-theirs').onclick = () => { location.reload(); };
   }
 
   /* Выход из аккаунта — кнопка в разделе «Настройки». Сначала дописываем
