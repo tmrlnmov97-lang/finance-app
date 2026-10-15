@@ -1568,7 +1568,7 @@
         </section>
 
         <section style="display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 18px;">
-          <sc-for list="{{ overKpis }}" as="k" hint-placeholder-count="4">
+          <sc-for list="{{ overKpis }}" as="k" hint-placeholder-count="3">
             <div style="{{ k.cardStyle }}">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <span style="{{ k.iconStyle }}">
@@ -3318,9 +3318,14 @@ class Component extends DCLogic {
       progressRing: { width: '140px', height: '140px', borderRadius: '50%', background: 'conic-gradient(var(--acc-deep) 0 ' + (isCur ? (now.getDate() / daysInMonth * 100).toFixed(1) : 100) + '%, color-mix(in oklab, var(--acc) 22%, var(--card)) 0)' },
       dayPillStyle: { marginTop: '10px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '12px', background: 'var(--card)', border: '1px solid var(--line)' },
 
+      /* Карточка одна, а не две: «Есть сейчас» было частью «Факта на руках»,
+         и слагаемое рядом с суммой читалось как ещё один остаток. Теперь
+         остаток наличных показан в подписи, внутри формулы. */
       overKpis: [
-        { label: 'Есть сейчас', value: this.base(handUsd), note: handGoneUsd ? 'ушло ' + this.base(handGoneUsd) : 'наличные и карты', tone: 'var(--mint)', paths: ['M3 8.5h14a3 3 0 0 1 3 3v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8z', 'M3 8.5c0-2 1.6-3.5 4-3.5h7'] },
-        { label: 'Факт на руках', value: this.base(factUsd), note: 'пришло минус оплачено', tone: 'var(--acc)', paths: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7.5V12l3.5 2'] },
+        { label: 'Сейчас на руках', value: this.base(factUsd),
+          note: this.base(gotUsd) + ' пришло − ' + this.base(paidUsd) + ' оплачено'
+                + (handUsd ? ' + ' + this.base(handUsd) + ' наличными' : ''),
+          tone: 'var(--acc)', paths: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', 'M12 7.5V12l3.5 2'] },
         { label: 'Доходы', value: this.base(incomeUsd), note: 'получено ' + this.base(gotUsd), tone: 'var(--blue)', paths: ['M12 19V5', 'M6 11l6-6 6 6'] },
         { label: 'Расходы', value: this.base(expenseUsd + spendUsd), note: 'мелких ' + this.base(spendUsd) + ' · ' + this.base(dayBurn) + ' в день', tone: 'var(--rose)', paths: ['M12 5v14', 'M18 13l-6 6-6-6'] }
       ].map(k => ({
