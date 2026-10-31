@@ -1801,6 +1801,9 @@
                                   <div style="display: flex; align-items: center; gap: 12px; width: 100%;">
                                     <span onClick="{{ it.onToggle }}" style="{{ it.mark }}">✓</span>
                                     <span style="{{ it.nameStyle }}">{{ it.name }}</span>
+                                    <sc-if value="{{ it.hasCat }}" hint-placeholder-val="{{ false }}">
+                                      <span onClick="{{ it.onEdit }}" title="{{ it.catTitle }}" style="{{ it.catStyle }}">{{ it.catLabel }}</span>
+                                    </sc-if>
                                     <span style="{{ it.amountStyle }}">{{ it.amount }}</span>
                                     <span onClick="{{ it.onEdit }}" style="cursor: pointer; color: var(--dim); font-size: 15px; line-height: 1; padding: 2px 3px; letter-spacing: 2px;" style-hover="color: var(--acc);">⋮</span>
                                   </div>
@@ -1813,6 +1816,13 @@
                                         <option value="{{ c.value }}">{{ c.label }}</option>
                                       </sc-for>
                                     </select>
+                                    <sc-if value="{{ it.hasCat }}" hint-placeholder-val="{{ false }}">
+                                      <select value="{{ it.draftCat }}" onChange="{{ it.onCat }}" style="{{ inputMd }}">
+                                        <sc-for list="{{ catOptions }}" as="c" hint-placeholder-count="8">
+                                          <option value="{{ c.value }}">{{ c.label }}</option>
+                                        </sc-for>
+                                      </select>
+                                    </sc-if>
                                     <input value="{{ it.draftName }}" onChange="{{ it.onName }}" placeholder="на что" style="{{ inputFlex }}" />
                                     <button onClick="{{ it.onSave }}" style="{{ btnPrimarySm }}">ок</button>
                                     <button onClick="{{ it.onDelete }}" style="{{ btnDangerSm }}">удалить</button>
@@ -2357,6 +2367,38 @@ const CAT_ICON = {
 };
 const CAT_COLOR = {};
 CATS.forEach(c => { CAT_COLOR[c[0]] = c[1]; });
+
+/* Подсказка категории по названию строки. Нужна для старых записей бюджета:
+   категорий у них нет, и без подсказки все они свалились бы в «прочее».
+   Это только предположение — выбранная вручную категория всегда важнее. */
+const CAT_HINTS = {
+  'аренда': ['аренд', 'квартир', 'жиль', 'ипотек'],
+  'коммуналка': ['коммунал', 'свет', 'газ', 'вода', 'электр', 'отоплен', 'интернет', 'связь', 'мобиль'],
+  'продукты': ['продукт', 'еда', 'магазин', 'базар', 'супермаркет', 'овощ', 'хлеб', 'мясо', 'молок'],
+  'кафе и кофе': ['кафе', 'кофе', 'ресторан', 'завтрак', 'обед', 'ужин', 'бар', 'чай'],
+  'здоровье': ['здоров', 'врач', 'аптек', 'лекарств', 'стоматолог', 'анализ', 'клиник', 'страхов'],
+  'красота': ['красот', 'салон', 'парикмахер', 'маникюр', 'космет', 'бров', 'ногт'],
+  'спорт': ['спорт', 'фитнес', 'бассейн', 'йог', 'трениров', 'зал'],
+  'техника': ['техник', 'ноутбук', 'компьютер', 'наушник', 'usb', 'зарядк', 'гаджет', 'телефон'],
+  'подписки': ['подписк', 'netflix', 'spotify', 'chatgpt', 'gpt', 'claude', 'youtube', 'icloud', 'figma'],
+  'транспорт': ['транспорт', 'такси', 'метро', 'автобус', 'бензин', 'заправк', 'парковк'],
+  'питомцы': ['кот', 'кош', 'собак', 'питом', 'корм', 'ветеринар', 'лоток'],
+  'семья': ['семь', 'ребен', 'ребён', 'дет', 'подар', 'мам', 'пап'],
+  'кредиты': ['кредит', 'займ', 'рассроч', 'долг'],
+  'документы': ['документ', 'виза', 'паспорт', 'нотариус', 'пошлин', 'курс', 'обучен', 'школ', 'универ', 'практикум']
+};
+const CAT_NAMES = CATS.map(c => c[0]);
+function guessCat(name) {
+  const s = String(name || '').toLowerCase().trim();
+  if (!s) return 'прочее';
+  for (let k = 0; k < CAT_NAMES.length; k++) {
+    const cat = CAT_NAMES[k];
+    if (s.indexOf(cat) >= 0) return cat;                 // название прямо содержит категорию
+    const hints = CAT_HINTS[cat] || [];
+    for (let j = 0; j < hints.length; j++) if (s.indexOf(hints[j]) >= 0) return cat;
+  }
+  return 'прочее';
+}
 const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
 const MSHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const MGEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -2946,7 +2988,13 @@ class Component extends DCLogic {
     if (!amount) return;
     this.setState(s => {
       const next = Object.assign({}, s.newItem); next[bid] = { amount: '', name: '' };
-      return { newItem: next, blocks: s.blocks.map(b => b.id !== bid ? b : Object.assign({}, b, { items: b.items.concat([{ id: uid(), amount: amount, name: n.name || '', done: false }]) })) };
+      return { newItem: next, blocks: s.blocks.map(b => {
+        if (b.id !== bid) return b;
+        const item = { id: uid(), amount: amount, name: n.name || '', done: false };
+        // Расходу сразу подбираем категорию по названию — потом можно поменять.
+        if (b.kind === 'expense') item.cat = guessCat(n.name);
+        return Object.assign({}, b, { items: b.items.concat([item]) });
+      }) };
     });
   }
 
@@ -3086,12 +3134,27 @@ class Component extends DCLogic {
             amount: this.fmt(i.amount, cur),
             amountStyle: { fontSize: '14px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: i.done ? 'var(--dim)' : 'var(--ink)', textDecoration: i.done ? 'line-through' : 'none' },
             onToggle: () => this.patchBlockItem(b.id, i.id, { done: !i.done }),
-            onEdit: () => this.setState({ editing: i.id, draft: { amount: String(i.amount), name: i.name || '', cur: cur } }),
+            // Категория есть только у расходов: у доходов и наличных её смысла нет.
+            hasCat: b.kind === 'expense',
+            catLabel: i.cat || guessCat(i.name),
+            catTitle: i.cat ? 'Категория — нажмите, чтобы изменить' : 'Категория подобрана по названию — нажмите, чтобы изменить',
+            /* Подобранную категорию показываем пунктиром: видно, что это
+               предположение, а не ваш выбор. */
+            catStyle: { cursor: 'pointer', fontSize: '11.5px', padding: '3px 9px', borderRadius: '999px', whiteSpace: 'nowrap', flex: '0 0 auto', color: 'var(--mut)', background: 'color-mix(in oklab, ' + (CAT_COLOR[i.cat || guessCat(i.name)] || '#9A92AE') + ' 13%, var(--card))', border: i.cat ? '1px solid transparent' : '1px dashed var(--line-strong)' },
+            onEdit: () => this.setState({ editing: i.id, draft: { amount: String(i.amount), name: i.name || '', cur: cur, cat: i.cat || guessCat(i.name) } }),
             draftAmount: st.draft.amount || '', draftName: st.draft.name || '', draftCur: st.draft.cur || cur,
+            draftCat: st.draft.cat || (i.cat || guessCat(i.name)),
             onAmount: e => this.setState({ draft: Object.assign({}, this.state.draft, { amount: e.target.value }) }),
             onName: e => this.setState({ draft: Object.assign({}, this.state.draft, { name: e.target.value }) }),
             onCur: e => this.setState({ draft: Object.assign({}, this.state.draft, { cur: e.target.value }) }),
-            onSave: () => { const d = this.state.draft; this.patchBlockItem(b.id, i.id, { amount: parseFloat(String(d.amount).replace(',', '.')) || 0, name: d.name, cur: d.cur || cur }); this.setState({ editing: null }); },
+            onCat: e => this.setState({ draft: Object.assign({}, this.state.draft, { cat: e.target.value }) }),
+            onSave: () => {
+              const d = this.state.draft;
+              const patch = { amount: parseFloat(String(d.amount).replace(',', '.')) || 0, name: d.name, cur: d.cur || cur };
+              if (b.kind === 'expense') patch.cat = d.cat || guessCat(d.name);
+              this.patchBlockItem(b.id, i.id, patch);
+              this.setState({ editing: null, draft: {} });
+            },
             onDelete: () => this.removeBlockItem(b.id, i.id)
           };
         })
@@ -3149,11 +3212,10 @@ class Component extends DCLogic {
     // Сколько останется, когда всё запланированное будет оплачено.
     const leftoverUsd = availableUsd - expenseUsd - spendUsd;
 
-    /* «На что уходят деньги». У строк бюджета нет категории, и раньше они
-       все попадали в «прочее» — получалась одна гигантская доля, из которой
-       ничего не понять. Теперь плановый расход идёт под своим названием
-       («Аренда», «Кот»), а мелкие траты — по категориям дневника.
-       Одинаковые названия складываются. */
+    /* «На что уходят деньги» — по категориям, а не по каждой строке.
+       У строки бюджета есть своя категория; если её не выбрали, берём
+       подсказку по названию, иначе всё свалилось бы в «прочее».
+       Мелкие траты идут по категориям дневника — список общий. */
     const catTotals = {};
     const addShare = (label, usd) => {
       const title = String(label || '').trim() || 'без названия';
@@ -3162,7 +3224,7 @@ class Component extends DCLogic {
       catTotals[key].usd += usd;
     };
     expenseBlocks.forEach(b => b.items.forEach(i =>
-      addShare(i.name || b.title, this.usd(i.amount, i.cur || b.cur))));
+      addShare(i.cat || guessCat(i.name), this.usd(i.amount, i.cur || b.cur))));
     monthSpends.forEach(s => addShare(s.cat || 'прочее', this.usd(s.amount, s.cur)));
 
     const SHARE_COLORS = ['#8B7AB8', '#5E8E7E', '#B87498', '#6C7FB8', '#A6883F',
