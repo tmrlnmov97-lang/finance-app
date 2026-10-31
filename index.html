@@ -1664,7 +1664,7 @@
             </div>
             <div style="flex: 1 1 200px; min-width: 190px;">
               <sc-for list="{{ legend }}" as="c" hint-placeholder-count="7">
-                <div style="display: flex; align-items: center; gap: 9px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--line2);">
+                <div onClick="{{ c.onClick }}" style="{{ c.rowStyle }}">
                   <span style="{{ c.dot }}"></span>
                   <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ c.title }}</span>
                   <span style="font-variant-numeric: tabular-nums; color: var(--dim); font-size: 12px; min-width: 34px; text-align: right;">{{ c.share }}</span>
@@ -3169,17 +3169,24 @@ class Component extends DCLogic {
                           '#9B7FC4', '#7FA8A0', '#C08A6A', '#8092C4', '#A97E9B'];
     const allShares = Object.keys(catTotals).map(k => catTotals[k])
       .filter(s => s.usd > 0).sort((a, b) => b.usd - a.usd);
-    // Больше девяти долей кольцо не читает: хвост сворачиваем в одну строку.
+    /* Сразу девять долей — столько читает кольцо. Остальные свёрнуты в одну
+       строку, но она раскрывается по нажатию: тогда видно все статьи
+       и в списке, и в кольце. */
     const TOP = 9;
-    const headShares = allShares.length > TOP ? allShares.slice(0, TOP - 1) : allShares;
-    const tail = allShares.length > TOP ? allShares.slice(TOP - 1) : [];
-    const expShare = headShares.concat(tail.length ? [{
-      title: 'ещё ' + tail.length + ' ' + plural(tail.length, 'статья', 'статьи', 'статей'),
-      usd: tail.reduce((a, s) => a + s.usd, 0)
-    }] : []).map((s, idx) => ({
-      title: s.title, usd: s.usd,
-      color: CAT_COLOR[s.title.toLowerCase()] || SHARE_COLORS[idx % SHARE_COLORS.length]
-    }));
+    const sharesAll = !!st.sharesAll;
+    const hasTail = allShares.length > TOP;
+    const folded = hasTail && !sharesAll;
+    const tail = folded ? allShares.slice(TOP - 1) : [];
+    const expShare = (folded ? allShares.slice(0, TOP - 1) : allShares)
+      .concat(tail.length ? [{
+        title: 'ещё ' + tail.length + ' ' + plural(tail.length, 'статья', 'статьи', 'статей'),
+        usd: tail.reduce((a, s) => a + s.usd, 0), isTail: true
+      }] : [])
+      .map((s, idx) => ({
+        title: s.title, usd: s.usd, isTail: !!s.isTail,
+        color: s.isTail ? 'var(--line-strong)'
+          : (CAT_COLOR[s.title.toLowerCase()] || SHARE_COLORS[idx % SHARE_COLORS.length])
+      }));
     const shareSum = expShare.reduce((a, b) => a + b.usd, 0) || 1;
     let acc = 0;
     const stops = expShare.map(s => { const from = acc / shareSum * 100; acc += s.usd; return s.color + ' ' + from.toFixed(1) + '% ' + (acc / shareSum * 100).toFixed(1) + '%'; }).join(', ');
@@ -3541,11 +3548,20 @@ class Component extends DCLogic {
       bars: bars,
       donutStyle: { width: '140px', height: '140px', borderRadius: '50%', background: 'conic-gradient(' + (stops || 'var(--line2) 0% 100%') + ')' },
       donutCenter: this.base(shareSum),
-      // Показываем все доли, а не первые шесть: иначе кольцо и список расходятся.
+      /* Показываем все доли, а не первые шесть: иначе кольцо и список
+         расходятся. Свёрнутый хвост — такая же строка, но по нажатию
+         раскрывается; в раскрытом виде внизу появляется «свернуть». */
       legend: expShare.map(s => ({
         title: s.title, dot: dot(s.color), amount: this.base(s.usd),
-        share: (shareSum ? Math.round(s.usd / shareSum * 100) : 0) + '%'
-      })),
+        share: (shareSum ? Math.round(s.usd / shareSum * 100) : 0) + '%',
+        rowStyle: { display: 'flex', alignItems: 'center', gap: '9px', fontSize: '13px', padding: '7px 0', borderBottom: '1px solid var(--line2)', cursor: s.isTail ? 'pointer' : 'default', color: s.isTail ? 'var(--acc-ink)' : 'inherit', fontWeight: s.isTail ? 600 : 400 },
+        onClick: s.isTail ? (() => this.setState({ sharesAll: true })) : (() => {})
+      })).concat(hasTail && sharesAll ? [{
+        title: 'свернуть', amount: '', share: '',
+        dot: { width: '8px', height: '8px', borderRadius: '50%', flex: '0 0 8px', background: 'transparent' },
+        rowStyle: { display: 'flex', alignItems: 'center', gap: '9px', fontSize: '13px', padding: '9px 0 2px', cursor: 'pointer', color: 'var(--acc-ink)', fontWeight: 600 },
+        onClick: () => this.setState({ sharesAll: false })
+      }] : []),
       saveTips: saveTips,
 
       aiText: aiText,
