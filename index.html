@@ -2549,6 +2549,15 @@ class Component extends DCLogic {
       // Если чинили номера записей — сразу закрепляем починку в хранилище.
       if (this.idsRepaired) { this.idsRepaired = false; this.queueSave(); }
 
+      /* Открываемся на текущем месяце, а не на том, где закрыли прошлый раз.
+         Иначе второго ноября встречает октябрь, и дата в поле новой траты
+         встаёт на первое октября. Переключение само заведёт новый месяц
+         с теми же блоками и пустыми строками. */
+      const today = new Date();
+      if (this.state.year !== today.getFullYear() || this.state.month !== today.getMonth()) {
+        this.setState({ year: today.getFullYear(), month: today.getMonth(), allYear: false });
+      }
+
       /* Страницу могут закрыть раньше, чем пройдёт отложенная запись.
          visibilitychange срабатывает, пока страница ещё жива и успевает
          дописать; pagehide оставляем последней подстраховкой. */
